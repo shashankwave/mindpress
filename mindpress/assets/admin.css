@@ -1,0 +1,28 @@
+.mp-wrap { padding: 8px; }
+
+.mp-tree { list-style: none; padding-left: 0; }
+
+.mp-node {
+  margin: 8px 0;
+  border-left: 2px solid #cbd5e1;
+  padding-left: 12px;
+}
+
+.mp-row {
+  display: grid;
+  grid-template-columns: 2fr 3fr auto auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.mp-text { width: 100%; }
+.mp-notes { width: 100%; min-height: 48px; }
+
+.mp-children {
+  list-style: none;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px dashed #e5e7eb;
+}
+
+.mp-del { color: #b91c1c; }
