@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MindPress – Mind Map to Post
  * Description: Plan blog posts visually in WP Admin. Autosaves the map, can generate a draft or insert into the current post.
- * Version: 0.2.2
+ * Version: 0.2.3
  * Author: You
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -57,18 +57,14 @@ class MindPressPlugin {
         if ($screen && in_array($screen->base, ['post', 'post-new'], true)) {
             $ptype = isset($screen->post_type) ? $screen->post_type : '';
             if (in_array($ptype, [ self::CPT, 'post' ], true)) {
-                // Robust post ID detection (works even if $post is not set)
+                wp_enqueue_style ('mp-admin', plugin_dir_url(__FILE__) . 'assets/admin.css', [], '0.2.3');
+                wp_enqueue_script('mp-admin', plugin_dir_url(__FILE__) . 'assets/admin.js', ['jquery'], '0.2.3', true);
+
+                // Use $post global only; don't touch $_GET to avoid nonce warnings
                 $post_id = 0;
-                if (!empty($_GET['post'])) {
-                    $post_id = absint($_GET['post']);
-                } elseif (!empty($GLOBALS['post']->ID)) {
-                    $post_id = (int) $GLOBALS['post']->ID;
-                }
+                $post    = get_post();
+                if ($post) { $post_id = (int) $post->ID; }
 
-                wp_enqueue_style ('mp-admin', plugin_dir_url(__FILE__) . 'assets/admin.css', [], '0.2.2');
-                wp_enqueue_script('mp-admin', plugin_dir_url(__FILE__) . 'assets/admin.js', ['jquery'], '0.2.2', true);
-
-                global $post;
                 wp_localize_script('mp-admin', 'MindPress', [
                     'nonce'  => wp_create_nonce(self::NONCE),
                     'ajax'   => admin_url('admin-ajax.php'),
@@ -119,49 +115,75 @@ class MindPressPlugin {
         echo '<p class="description">'.esc_html__('Tip: Outline visually. Autosave is on. Use Generate to create a new draft, or Insert to replace current post content.', 'mindpress').'</p>';
     }
 
-    // Fallback save on Update/Publish
+    /** Fallback save when clicking Update/Publish */
     public function save($post_id, $post) {
         if (!in_array($post->post_type, [ self::CPT, 'post' ], true)) return;
-        if (!isset($_POST[self::NONCE]) || !wp_verify_nonce($_POST[self::NONCE], self::NONCE)) return;
+
+        $nonce = isset($_POST[self::NONCE]) ? sanitize_text_field( wp_unslash($_POST[self::NONCE]) ) : '';
+        if (!$nonce || !wp_verify_nonce($nonce, self::NONCE)) return;
+
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
         if (!current_user_can('edit_post', $post_id)) return;
 
-        $json = isset($_POST['_mp_tree']) ? wp_unslash($_POST['_mp_tree']) : '';
-        if ($json) update_post_meta($post_id, '_mp_tree', $json);
-        else       delete_post_meta($post_id, '_mp_tree');
+        $json_raw = isset($_POST['_mp_tree']) ? wp_unslash($_POST['_mp_tree']) : '';
+        if ($json_raw !== '') {
+            $arr = json_decode($json_raw, true);
+            if (is_array($arr)) {
+                update_post_meta($post_id, '_mp_tree', wp_json_encode($arr));
+            } else {
+                // invalid JSON; remove to avoid storing unsafe data
+                delete_post_meta($post_id, '_mp_tree');
+            }
+        } else {
+            delete_post_meta($post_id, '_mp_tree');
+        }
     }
 
-    // AUTOSAVE endpoint
+    /** AUTOSAVE endpoint */
     public function ajax_save_tree() {
         check_ajax_referer(self::NONCE, 'nonce');
+
         $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
         if (!$post_id || !current_user_can('edit_post', $post_id)) {
             wp_send_json_error(['message' => 'Permission denied'], 403);
         }
-        $tree = isset($_POST['tree']) ? wp_unslash($_POST['tree']) : '';
-        if ($tree === '') wp_send_json_error(['message' => 'Empty tree']);
-        update_post_meta($post_id, '_mp_tree', $tree);
+
+        $raw = isset($_POST['tree']) ? wp_unslash($_POST['tree']) : '';
+        $arr = json_decode($raw, true);
+        if (!is_array($arr)) {
+            wp_send_json_error(['message' => 'Invalid JSON'], 400);
+        }
+
+        update_post_meta($post_id, '_mp_tree', wp_json_encode($arr));
         wp_send_json_success(['ok' => true]);
     }
 
-    // LOAD fallback (if box renders empty)
+    /** LOAD fallback for existing data */
     public function ajax_get_tree() {
         check_ajax_referer(self::NONCE, 'nonce');
+
         $post_id = isset($_GET['post_id']) ? absint($_GET['post_id']) : 0;
         if (!$post_id || !current_user_can('edit_post', $post_id)) {
             wp_send_json_error(['message' => 'Permission denied'], 403);
         }
+
         $tree = get_post_meta($post_id, '_mp_tree', true);
         wp_send_json_success(['tree' => $tree]);
     }
 
     public function ajax_generate_post() {
         check_ajax_referer(self::NONCE, 'nonce');
-        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Permission denied'], 403);
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => 'Permission denied'], 403);
+        }
 
-        $map   = isset($_POST['tree']) ? json_decode(stripslashes($_POST['tree']), true) : null;
-        $title = isset($_POST['title']) ? sanitize_text_field($_POST['title']) : 'MindPress Draft';
-        if (!$map || !is_array($map)) wp_send_json_error(['message' => 'Invalid map']);
+        $raw_tree = isset($_POST['tree']) ? wp_unslash($_POST['tree']) : '';
+        $map      = json_decode($raw_tree, true);
+        $title    = isset($_POST['title']) ? sanitize_text_field( wp_unslash($_POST['title']) ) : 'MindPress Draft';
+
+        if (!is_array($map)) {
+            wp_send_json_error(['message' => 'Invalid map'], 400);
+        }
 
         $content = $this->tree_to_content($map);
         $post_id = wp_insert_post([
@@ -179,16 +201,21 @@ class MindPressPlugin {
 
     public function ajax_insert_into() {
         check_ajax_referer(self::NONCE, 'nonce');
-        $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
+
+        $post_id  = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
+        $raw_tree = isset($_POST['tree']) ? wp_unslash($_POST['tree']) : '';
+        $map      = json_decode($raw_tree, true);
+
         if (!$post_id || !current_user_can('edit_post', $post_id)) {
             wp_send_json_error(['message' => 'Permission denied'], 403);
         }
-        $map = isset($_POST['tree']) ? json_decode(stripslashes($_POST['tree']), true) : null;
-        if (!$map || !is_array($map)) wp_send_json_error(['message' => 'Invalid map']);
+        if (!is_array($map)) {
+            wp_send_json_error(['message' => 'Invalid map'], 400);
+        }
 
         $content = $this->tree_to_content($map);
         $res = wp_update_post([
-            'ID' => $post_id,
+            'ID'           => $post_id,
             'post_content' => $content,
         ], true);
 
@@ -207,12 +234,14 @@ class MindPressPlugin {
                 $lines[] = $prefix . ' ' . $text;
                 if (!empty($node['notes'])) {
                     $lines[] = '';
-                    $lines[] = $node['notes'];
+                    $lines[] = wp_strip_all_tags($node['notes']);
                 }
                 $lines[] = '';
             }
             if (!empty($node['children']) && is_array($node['children'])) {
-                foreach ($node['children'] as $child) $walk($child, $level + 1);
+                foreach ($node['children'] as $child) {
+                    $walk($child, $level + 1);
+                }
             }
         };
         $walk($tree, 1);
