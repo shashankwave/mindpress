@@ -2,3 +2,9 @@
 /vendor/
 .DS_Store
 *.log
+# macOS & archives
+.DS_Store
+*.zip
+
+.DS_Store
+*.zip
