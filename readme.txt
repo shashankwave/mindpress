@@ -2,13 +2,13 @@
 Contributors: shashankwave
 Tags: mind map, blogging, editor, outline, content
 Requires at least: 6.0
-Tested up to: 6.6
+Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 0.2.3
+Stable tag: 0.2.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Plan blog posts visually inside WordPress. Build a mind map, then generate a draft or insert into the current post. Autosave, search, colors, expand/collapse.
+Plan posts visually in WordPress. Build a mind map, then generate a draft or insert into the post. Autosave, search, colors, collapse/expand.
 
 == Description ==
 MindPress lets you outline posts as a simple mind map in WP Admin. It autosaves as you type and can create a new draft or replace the current post content.
