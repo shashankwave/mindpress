@@ -26,3 +26,5 @@
 }
 
 .mp-del { color: #b91c1c; }
+/* highlight search hits */
+.mp-card.mp-hit { outline: 2px solid rgba(250,204,21,.45); }

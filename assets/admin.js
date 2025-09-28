@@ -1,184 +1,306 @@
- (function($){
-  const COLORS = ["blue","green","amber","pink","violet"];
-  let SAVE_TIMER = null;
+(function($){
+  'use strict';
+  console.log('MindPress admin.js v0.3.3 loaded');
 
-  function uid(){ return 'n'+Math.random().toString(36).slice(2,9); }
-  function setStatus(msg){ $('#mp-status').text(msg); }
+  const COLORS = [
+    {key:'',       label:'None'},
+    {key:'red',    label:'Red'},
+    {key:'orange', label:'Orange'},
+    {key:'yellow', label:'Yellow'},
+    {key:'green',  label:'Green'},
+    {key:'blue',   label:'Blue'},
+    {key:'purple', label:'Purple'},
+    {key:'gray',   label:'Gray'}
+  ];
 
-  function nodeTemplate(text = '', notes = '', color = 'blue'){
-    return { id: uid(), text, notes, color, _collapsed: false, children: [] };
+  const state = {
+    data: { children: [] },   // virtual root
+    selectedId: null,
+    saveTimer: null
+  };
+
+  function uid(){ return 'n'+Math.random().toString(36).slice(2,10); }
+
+  function parseInitial(){
+    const raw = $('#mp-app').attr('data-json') || '';
+    try {
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed) {
+        state.data = { children: [{ id: uid(), text: MindPress.i18n.root, notes:'', color:'', children:[] }] };
+      } else if (Array.isArray(parsed)) {
+        state.data = { children: parsed.map(normalizeNode) };
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.children)) state.data = { children: parsed.children.map(normalizeNode) };
+        else if (parsed.text) state.data = { children: [ normalizeNode(parsed) ] };
+        else state.data = { children: [] };
+      }
+    } catch(e){
+      state.data = { children: [{ id: uid(), text: MindPress.i18n.root, notes:'', color:'', children:[] }] };
+    }
+    persistHidden();
   }
-  function ensureIds(node){
-    if(!node) return nodeTemplate('Root Idea');
-    if(!node.id) node.id = uid();
-    (node.children||[]).forEach(ensureIds);
-    return node;
+
+  function normalizeNode(n){
+    if (!n) n = {};
+    return {
+      id: n.id || uid(),
+      text: n.text || '',
+      notes: n.notes || '',
+      color: (typeof n.color === 'string') ? n.color : '',
+      children: Array.isArray(n.children) ? n.children.map(normalizeNode) : []
+    };
   }
 
-  // locate parent/index for an id
-  function findParent(root, id){
-    if(!root) return null;
-    const kids = root.children || [];
-    const idx = kids.findIndex(ch => ch.id === id);
-    if(idx >= 0) return { parent: root, index: idx };
-    for(const ch of kids){ const r = findParent(ch, id); if(r) return r; }
+  function persistHidden(){ $('#_mp_tree').val(JSON.stringify(state.data)); }
+
+  function findNodeAndParent(id, nodes = state.data.children, parent = null){
+    for (let i=0;i<nodes.length;i++){
+      const n = nodes[i];
+      if (n.id === id) return { node:n, parent, index:i, siblings:nodes };
+      if (Array.isArray(n.children)){
+        const r = findNodeAndParent(id, n.children, n);
+        if (r) return r;
+      }
+    }
     return null;
   }
-  function moveUp(root, id){ const r=findParent(root,id); if(!r) return; if(r.index>0){ const a=r.parent.children; [a[r.index-1],a[r.index]]=[a[r.index],a[r.index-1]]; } }
-  function moveDown(root, id){ const r=findParent(root,id); if(!r) return; const a=r.parent.children; if(r.index<a.length-1){ [a[r.index+1],a[r.index]]=[a[r.index],a[r.index+1]]; } }
-  function indent(root,id){ const r=findParent(root,id); if(!r) return; if(r.index===0) return; const a=r.parent.children; const prev=a[r.index-1]; const [m]=a.splice(r.index,1); prev.children=prev.children||[]; prev.children.push(m); }
-  function outdent(root,id){ const r=findParent(root,id); if(!r) return; const grand=findParent(window.__mp_root,r.parent.id); if(!grand) return; const [m]=r.parent.children.splice(r.index,1); const s=grand.parent.children; const pIndex=s.findIndex(n=>n.id===r.parent.id); s.splice(pIndex+1,0,m); }
 
-  function prune(node){
-    if(!node || node._deleted) return null;
-    const kids=(node.children||[]).map(prune).filter(Boolean);
-    return { id: node.id, text: node.text||'', notes: node.notes||'', color: node.color||'blue', _collapsed: !!node._collapsed, children: kids };
+  function render(){
+    const $app = $('#mp-app').empty();
+    const $list = $('<ul class="mp-list root"></ul>');
+    (state.data.children || []).forEach(n => $list.append(renderNode(n, 1)));
+    $app.append($list);
   }
 
-  // AUTOSAVE (debounced)
-  function autosave(){
-    const postId = MindPress.postId || 0;
-    if(!postId) return; // cannot save without an ID
-    clearTimeout(SAVE_TIMER);
-    setStatus(MindPress.i18n.saving || 'Saving…');
-    SAVE_TIMER = setTimeout(function(){
-      const data = JSON.stringify(prune(window.__mp_root));
-      $('#_mp_tree').val(data);
-      $.post(MindPress.ajax, { action:'mp_save_tree', nonce: MindPress.nonce, post_id: postId, tree: data })
-        .done(()=> setStatus(MindPress.i18n.saved || 'Saved ✓'))
-        .fail(()=> setStatus('Save failed'));
-    }, 350);
-  }
-
-  function saveHidden(){
-    if(!window.__mp_root) return;
-    const pruned = prune(window.__mp_root);
-    $('#_mp_tree').val(JSON.stringify(pruned));
-    autosave();
-  }
-
-  function colorDots(node, $li){
-    const $wrap = $('<div class="mp-colors" aria-label="Colors"></div>');
-    COLORS.forEach(c=>{
-      const $d=$('<span class="mp-dot" role="button"></span>').attr('data-color',c).attr('title',c);
-      if(node.color===c) $d.css('outline','2px solid #00000033');
-      $d.on('click', ()=>{ node.color=c; $li.removeClass((i,cls)=>(cls.match(/(^|\\s)color-\\S+/g)||[]).join(' ')); $li.addClass('color-'+c); saveHidden(); });
-      $wrap.append($d);
+  function renderColorBar(n){
+    const $bar = $('<div class="mp-colorbar" role="group" aria-label="Color"></div>');
+    COLORS.forEach(c => {
+      const $sw = $('<button type="button" class="mp-color-swatch" aria-pressed="false"></button>')
+        .attr('data-color', c.key)
+        .attr('title', c.label)
+        .toggleClass('active', n.color === c.key);
+      $bar.append($sw);
     });
-    return $wrap;
+    $bar.on('mousedown click', function(e){ e.stopPropagation(); });
+    $bar.find('.mp-color-swatch').on('click', function(e){
+      e.stopPropagation();
+      const color = $(this).attr('data-color');
+      n.color = color;
+      // Update visual without full re-render
+      const $card = $(this).closest('.mp-card');
+      $card.attr('data-color', color);
+      $(this).siblings().removeClass('active').attr('aria-pressed','false');
+      $(this).addClass('active').attr('aria-pressed','true');
+      scheduleSave(); // no rerender needed
+    });
+    return $bar;
   }
 
-  function renderNode(node, level){
-    const $li=$('<li class="mp-node"></li>').addClass('color-'+(node.color||'blue'));
-    if(node._collapsed) $li.addClass('mp-collapsed');
+  function renderNode(n, depth){
+    const $li   = $('<li class="mp-node"></li>').attr('data-id', n.id);
+    const $card = $('<div class="mp-card"></div>')
+                  .toggleClass('selected', state.selectedId===n.id)
+                  .attr('data-color', n.color || '');
 
-    const $head=$('<div class="mp-head"></div>');
-    const $handle=$('<span class="mp-handle" title="Collapse/Expand">▸</span>').on('click',()=>{ node._collapsed=!node._collapsed; $li.toggleClass('mp-collapsed'); saveHidden(); });
+    const $text  = $('<input type="text" class="mp-text" />').val(n.text || '').attr('placeholder','Idea');
+    const $notes = $('<textarea class="mp-notes" rows="2" placeholder="Notes..."></textarea>').val(n.notes || '');
 
-    const $titleWrap=$('<div class="mp-title"></div>');
-    const $text=$('<input type="text" class="mp-text" placeholder="Heading / idea">').val(node.text||'');
-    const $notes=$('<textarea class="mp-notes" placeholder="Notes (optional)"></textarea>').val(node.notes||'');
-    $text.on('input', ()=>{ node.text=$text.val(); saveHidden(); });
-    $notes.on('input', ()=>{ node.notes=$notes.val(); saveHidden(); });
-    $titleWrap.append($text,$notes);
+    // toolbar: swatches + buttons
+    const $tools = $('<div class="mp-tools"></div>');
+    const $colors = renderColorBar(n);
 
-    const $actions=$('<div class="mp-actions-row"></div>');
-    const $addChild=$('<button type="button" class="mp-btn">+ child</button>').on('click',()=>{ node.children=node.children||[]; node.children.push(nodeTemplate()); renderTree(); saveHidden(); });
-    const $addSibling=$('<button type="button" class="mp-btn">+ sibling</button>').on('click',()=>{ const r=findParent(window.__mp_root,node.id); if(r){ r.parent.children.splice(r.index+1,0,nodeTemplate()); renderTree(); saveHidden(); }});
-    const $up=$('<button type="button" class="mp-btn">↑</button>').on('click',()=>{ moveUp(window.__mp_root,node.id); renderTree(); saveHidden(); });
-    const $down=$('<button type="button" class="mp-btn">↓</button>').on('click',()=>{ moveDown(window.__mp_root,node.id); renderTree(); saveHidden(); });
-    const $indent=$('<button type="button" class="mp-btn">↳</button>').attr('title','Indent').on('click',()=>{ indent(window.__mp_root,node.id); renderTree(); saveHidden(); });
-    const $outdent=$('<button type="button" class="mp-btn">↰</button>').attr('title','Outdent').on('click',()=>{ outdent(window.__mp_root,node.id); renderTree(); saveHidden(); });
-    const $del=$('<button type="button" class="mp-btn" style="color:#b91c1c;">✕</button>').on('click',()=>{ if(confirm('Delete this node?')){ const r=findParent(window.__mp_root,node.id); if(r){ r.parent.children.splice(r.index,1); renderTree(); saveHidden(); } }});
-    $actions.append($addChild,$addSibling,$up,$down,$indent,$outdent,$del,colorDots(node,$li));
+    const $btns = $('<div class="mp-btns"></div>');
+    const $addChild   = $('<button type="button" class="button button-small" title="'+MindPress.i18n.addChild+'">＋</button>');
+    const $addSibling = $('<button type="button" class="button button-small" title="'+MindPress.i18n.addSibling+'">＝</button>');
+    const $del        = $('<button type="button" class="button button-small" title="'+MindPress.i18n.delete+'">✕</button>');
+    $btns.append($addChild, $addSibling, $del);
 
-    $head.append($handle,$titleWrap,$actions);
-    $li.append($head);
+    $tools.append($colors, $btns);
 
-    const $ul=$('<ul class="mp-children"></ul>');
-    (node.children||[]).forEach(ch=>$ul.append(renderNode(ch,level+1)));
-    $li.append($ul);
+    $card.append($text, $notes, $tools);
+    $li.append($card);
+
+    // children
+    const kids = Array.isArray(n.children) ? n.children : [];
+    const $kids = $('<ul class="mp-list"></ul>');
+    kids.forEach(c => $kids.append(renderNode(c, depth+1)));
+    $li.append($kids);
+
+    // selection (no rerender)
+    $card.on('mousedown', function(e){
+      if ($(e.target).is('input,textarea,button,.button,.mp-color-swatch')) return;
+      state.selectedId = n.id;
+      $('.mp-card.selected').removeClass('selected');
+      $(this).addClass('selected');
+    });
+
+    // stop bubbling while typing/clicking controls
+    $text.on('mousedown click keydown focus', function(e){ e.stopPropagation(); });
+    $notes.on('mousedown click keydown focus', function(e){ e.stopPropagation(); });
+    $btns.on('mousedown click', function(e){ e.stopPropagation(); });
+
+    // inputs update
+    $text.on('input', () => { n.text = $text.val(); scheduleSave(); });
+    $notes.on('input', () => { n.notes = $notes.val(); scheduleSave(); });
+
+    // add child
+    $addChild.on('click', () => {
+      if (!Array.isArray(n.children)) n.children = [];
+      n.children.push({ id: uid(), text: 'New idea', notes:'', color:'', children: [] });
+      state.selectedId = n.children[n.children.length-1].id;
+      scheduleSave(true);
+    });
+
+    // root-sibling fix
+    $addSibling.on('click', () => {
+      const found = findNodeAndParent(n.id);
+      if (!found) return;
+      const newNode = { id: uid(), text: 'New idea', notes:'', color:'', children: [] };
+      if (found.parent === null) {
+        state.data.children.splice(found.index+1, 0, newNode);
+        state.selectedId = state.data.children[found.index+1].id;
+      } else {
+        found.siblings.splice(found.index+1, 0, newNode);
+        state.selectedId = found.siblings[found.index+1].id;
+      }
+      scheduleSave(true);
+    });
+
+    // delete
+    $del.on('click', () => {
+      const found = findNodeAndParent(n.id);
+      if (!found) return;
+      found.siblings.splice(found.index,1);
+      state.selectedId = null;
+      if (state.data.children.length===0){
+        state.data.children.push({ id: uid(), text: MindPress.i18n.root, notes:'', color:'', children: []});
+      }
+      scheduleSave(true);
+    });
+
     return $li;
   }
 
-  function renderTree(){
-    const $app=$('#mp-app'); $app.empty();
-    const $tree=$('<ul class="mp-tree"></ul>');
-    $tree.append(renderNode(window.__mp_root,0));
-    $app.append($tree);
+  // autosave (debounced)
+  function scheduleSave(rerender){
+    persistHidden();
+    if (rerender) render();
+    if (state.saveTimer) clearTimeout(state.saveTimer);
+    state.saveTimer = setTimeout(doSave, 400);
   }
 
-  function expandAll(n){ n._collapsed=false; (n.children||[]).forEach(expandAll); }
-  function collapseAll(n){ n._collapsed=true; (n.children||[]).forEach(collapseAll); }
-
-  function highlightMatches(q, node, $el){
-    const hit=(node.text||'').toLowerCase().includes(q)||(node.notes||'').toLowerCase().includes(q);
-    if(hit) $el.find('> .mp-head .mp-text').addClass('mp-highlight');
-    (node.children||[]).forEach((ch,i)=>highlightMatches(q,ch,$el.find('> .mp-children > .mp-node').eq(i)));
-  }
-
-  // export/import helpers
-  function download(filename, text){
-    const blob=new Blob([text],{type:'application/json'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href);
-  }
-
-  // ---- boot ----
-  $(function(){
-    const $app=$('#mp-app'); if(!$app.length) return;
-    const postId = MindPress.postId || 0;
-
-    // Try to load from the data attribute
-    let initialStr = $app.data('json');
-    let initialObj = null;
-    if(initialStr){
-      try{ initialObj = JSON.parse(initialStr); }catch(e){ console.warn('MindPress: bad JSON in meta, using server fetch fallback', e); }
-    }
-
-    // If nothing in the box but we have a postId, fetch from server (fallback)
-    const renderFrom = (obj)=>{
-      window.__mp_root = ensureIds(obj || nodeTemplate('Root Idea'));
-      renderTree(); saveHidden();
-    };
-
-    if(!initialObj && postId){
-      $.get(MindPress.ajax, { action:'mp_get_tree', nonce: MindPress.nonce, post_id: postId })
-        .done(res=>{
-          if(res && res.success && res.data && res.data.tree){
-            try{
-              renderFrom(JSON.parse(res.data.tree));
-              return;
-            }catch(e){ /* fall through to default */ }
-          }
-          renderFrom(initialObj);
-        })
-        .fail(()=> renderFrom(initialObj));
-    } else {
-      renderFrom(initialObj);
-    }
-
-    // toolbar
-    $('#mp-expand-all').on('click',()=>{ expandAll(window.__mp_root); renderTree(); saveHidden(); });
-    $('#mp-collapse-all').on('click',()=>{ collapseAll(window.__mp_root); renderTree(); saveHidden(); });
-    $('#mp-export').on('click',()=>{ const data=$('#_mp_tree').val()||JSON.stringify(prune(window.__mp_root)); download('mindpress-map.json',data); setStatus(MindPress.i18n.exported||'Exported'); });
-    $('#mp-import').on('click',()=>{ const t=window.prompt('Paste JSON here:'); if(!t) return; try{ const obj=ensureIds(JSON.parse(t)); window.__mp_root=obj; renderTree(); saveHidden(); }catch(e){ alert(MindPress.i18n.importErr||'Invalid JSON'); }});
-    $('#mp-search').on('input',function(){ const q=$(this).val().toLowerCase(); renderTree(); if(q){ highlightMatches(q, window.__mp_root, $('#mp-app > .mp-tree > .mp-node').eq(0)); }});
-
-    // actions
-    $('#mp-generate').on('click', function(){
-      const pruned=prune(window.__mp_root);
-      const title=$('#title').val()||$('input[name="post_title"]').val()||'MindPress Draft';
-      $.post(MindPress.ajax,{ action:'mp_generate_post', nonce:MindPress.nonce, tree:JSON.stringify(pruned), title })
-        .done(res=>{ if(res&&res.success){ window.location.href=res.data.edit_link; } else { alert('Failed: '+(res&&res.data&&res.data.message?res.data.message:'Unknown error')); }})
-        .fail(()=>alert('Request failed'));
+  function doSave(){
+    if (!MindPress.postId) return;
+    $('#mp-status').text(MindPress.i18n.saving);
+    $.post(MindPress.ajax, {
+      action: 'mp_save_tree',
+      nonce: MindPress.nonce,
+      post_id: MindPress.postId,
+      tree: JSON.stringify(state.data)
+    }).always(function(){
+      $('#mp-status').text(MindPress.i18n.saved);
+      setTimeout(()=>$('#mp-status').text(''), 1000);
     });
+  }
 
-    $('#mp-insert').on('click', function(){
-      const pid=postId; if(!pid){ alert('No current post ID. Save the post first.'); return; }
-      const pruned=prune(window.__mp_root);
-      $.post(MindPress.ajax,{ action:'mp_insert_into', nonce:MindPress.nonce, post_id:pid, tree:JSON.stringify(pruned) })
-        .done(res=>{ if(res&&res.success){ alert('Inserted! Reloading…'); window.location.href=res.data.edit_link; } else { alert('Failed: '+(res&&res.data&&res.data.message?res.data.message:'Unknown error')); }})
-        .fail(()=>alert('Request failed'));
+ // smart search: show matches + their ancestors, auto-expand
+function applySearch(q){
+  q = (q || '').toLowerCase().trim();
+
+  const $nodes = $('.mp-node');
+  // reset
+  $nodes.removeAttr('data-match').show();
+  $('.mp-card').removeClass('mp-hit');
+
+  if (!q) { return; }
+
+  // pass 1: mark matches and ancestors
+  $nodes.each(function(){
+    const $node = $(this);
+    const $card = $node.children('.mp-card');
+    const t = ($card.find('.mp-text').val()  || '').toLowerCase();
+    const n = ($card.find('.mp-notes').val() || '').toLowerCase();
+    if (t.includes(q) || n.includes(q)) {
+      $node.attr('data-match','1');
+      $card.addClass('mp-hit');
+      // mark all ancestors so path stays visible
+      $node.parents('li.mp-node').attr('data-match','1');
+    }
+  });
+
+  // pass 2: hide non-matches, expand matched branches
+  $nodes.each(function(){
+    const $node = $(this);
+    if ($node.attr('data-match') === '1') {
+      $node.show().children('ul.mp-list').show(); // auto-expand branch
+    } else {
+      $node.hide();
+    }
+  });
+}
+
+$(document).on('input', '#mp-search', function(){
+  applySearch($(this).val());
+});
+
+
+  // expand/collapse
+  $(document).on('click', '#mp-expand-all',  ()=>$('.mp-list').show());
+  $(document).on('click', '#mp-collapse-all', ()=>$('#mp-app > .mp-list.root > li > .mp-list').hide());
+
+  // export/import
+  $(document).on('click', '#mp-export', function(){
+    const blob = new Blob([JSON.stringify(state.data, null, 2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='mindpress.json'; a.click();
+    alert(MindPress.i18n.exported);
+  });
+  $(document).on('click', '#mp-import', function(){
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='application/json';
+    inp.onchange = e => {
+      const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => {
+        try{
+          const obj = JSON.parse(r.result);
+          if (Array.isArray(obj)) state.data = {children: obj.map(normalizeNode)};
+          else if (obj && typeof obj==='object' && Array.isArray(obj.children)) state.data = {children: obj.children.map(normalizeNode)};
+          else throw new Error('bad');
+          persistHidden(); render(); scheduleSave();
+        } catch(err){ alert(MindPress.i18n.importErr); }
+      };
+      r.readAsText(f);
+    };
+    inp.click();
+  });
+
+  // Generate NEW blog → open editor in NEW TAB
+  $(document).on('click', '#mp-generate', function(){
+    $.post(MindPress.ajax, {
+      action: 'mp_generate_post',
+      nonce: MindPress.nonce,
+      source_id: MindPress.postId,
+      tree: JSON.stringify(state.data)
+    }).done(function(res){
+      if (res && res.success && res.data && res.data.edit_link) {
+        window.open(res.data.edit_link, '_blank');
+      }
     });
   });
+
+  // Insert into current post → open in NEW TAB
+  $(document).on('click', '#mp-insert', function(){
+    $.post(MindPress.ajax, {
+      action: 'mp_insert_into',
+      nonce: MindPress.nonce,
+      source_id: MindPress.postId,
+      post_id: MindPress.postId,
+      tree: JSON.stringify(state.data)
+    }).done(function(res){
+      if (res && res.success && res.data && res.data.edit_link) {
+        window.open(res.data.edit_link, '_blank');
+      }
+    });
+  });
+
+  $(function(){ parseInitial(); render(); });
 })(jQuery);

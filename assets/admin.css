@@ -109,3 +109,57 @@
 
 .mp-highlight .mp-text{ outline:2px solid var(--mp-accent); }
 
+
+/* Heading Mapping table */
+.mp-tagmap{ width:100%; border-collapse:collapse; }
+.mp-tagmap th, .mp-tagmap td{ padding:6px 8px; border-bottom:1px solid #eee; }
+.mp-tagmap select{ width:100%; }
+
+/* Heading Mapping table */
+.mp-tagmap{ width:100%; border-collapse:collapse; }
+.mp-tagmap th, .mp-tagmap td{ padding:6px 8px; border-bottom:1px solid #eee; }
+.mp-tagmap select{ width:100%; }
+
+/* --- MindPress color UI (v0.3.3) --- */
+.mp-card{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-left:6px solid transparent;
+  border-radius:10px;
+  padding:10px;
+  margin:8px 0;
+  box-shadow:0 1px 1px rgba(0,0,0,0.03);
+}
+.mp-card.selected{ outline:2px solid #2563eb22; }
+
+.mp-tools{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:6px;
+}
+.mp-colorbar{ display:flex; flex-wrap:wrap; gap:6px; }
+.mp-color-swatch{
+  width:16px; height:16px; border-radius:999px; border:1px solid #d1d5db;
+  display:inline-block; padding:0; background:#fff; cursor:pointer;
+}
+.mp-color-swatch.active{ box-shadow:0 0 0 2px #11182722; }
+
+/* swatch fills */
+.mp-color-swatch[data-color="red"]{    background:#ef4444; border-color:#ef4444; }
+.mp-color-swatch[data-color="orange"]{ background:#f97316; border-color:#f97316; }
+.mp-color-swatch[data-color="yellow"]{ background:#eab308; border-color:#eab308; }
+.mp-color-swatch[data-color="green"]{  background:#22c55e; border-color:#22c55e; }
+.mp-color-swatch[data-color="blue"]{   background:#3b82f6; border-color:#3b82f6; }
+.mp-color-swatch[data-color="purple"]{ background:#a855f7; border-color:#a855f7; }
+.mp-color-swatch[data-color="gray"]{   background:#6b7280; border-color:#6b7280; }
+
+/* card tint + border-left based on chosen color */
+.mp-card[data-color="red"]{    border-left-color:#ef4444; background:rgba(239,68,68,.06); }
+.mp-card[data-color="orange"]{ border-left-color:#f97316; background:rgba(249,115,22,.06); }
+.mp-card[data-color="yellow"]{ border-left-color:#eab308; background:rgba(234,179,8,.10); }
+.mp-card[data-color="green"]{  border-left-color:#22c55e; background:rgba(34,197,94,.06); }
+.mp-card[data-color="blue"]{   border-left-color:#3b82f6; background:rgba(59,130,246,.06); }
+.mp-card[data-color="purple"]{ border-left-color:#a855f7; background:rgba(168,85,247,.06); }
+.mp-card[data-color="gray"]{   border-left-color:#6b7280; background:rgba(107,114,128,.06); }
