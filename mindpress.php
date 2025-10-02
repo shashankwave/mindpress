@@ -156,23 +156,35 @@ class MindPressPlugin {
         ).'</p>';
     }
 
-    public function render_levels_metabox($post) {
-        // per-depth tag map saved as array ['1'=>'h2','2'=>'h3',...]
-        $map = $this->get_level_tags($post->ID);
-        $levels = [1,2,3,4,5,6];
-        echo '<table class="mp-tagmap">';
-        echo '<tr><th>'.esc_html__('Depth','mindpress').'</th><th>'.esc_html__('Tag','mindpress').'</th></tr>';
-        foreach ($levels as $d) {
-            echo '<tr><td>'.esc_html($d).'</td><td><select name="mp_tag_map['.$d.']">';
-            foreach ($this->allowed_tags as $tag) {
-                $sel = selected( (isset($map[(string)$d]) ? $map[(string)$d] : ''), $tag, false );
-                echo '<option value="'.esc_attr($tag).'" '.$sel.'>'.esc_html(strtoupper($tag)).'</option>';
-            }
-            echo '</select></td></tr>';
+   public function render_levels_metabox($post) {
+    $map = $this->get_level_tags($post->ID);
+    echo '<table class="mp-tagmap"><tr><th>' . esc_html__('Depth', 'mindpress') . '</th><th>' . esc_html__('Tag', 'mindpress') . '</th></tr>';
+
+    for ($d = 1; $d <= 6; $d++) {
+        $d_str = (string) $d; // for array access
+        echo '<tr>';
+        echo '<td>' . esc_html($d_str) . '</td>';
+        // NOTE: escape $d in the name attribute
+        echo '<td><select name="mp_tag_map[' . esc_attr($d_str) . ']">';
+
+        foreach ($this->allowed_tags as $tag) {
+            // Use printf with selected() inline (no temp $sel var).
+            printf(
+                '<option value="%1$s"%2$s>%3$s</option>',
+                esc_attr($tag),
+                selected( isset($map[$d_str]) ? $map[$d_str] : '', $tag, false ),
+                esc_html( strtoupper($tag) )
+            );
         }
-        echo '</table>';
-        echo '<p class="description">'.esc_html__('Choose how each depth renders (H1–H6 or P).', 'mindpress').'</p>';
+
+        echo '</select></td>';
+        echo '</tr>';
     }
+
+    echo '</table>';
+    echo '<p class="description">' . esc_html__('Choose how each depth renders (H1–H6 or P).', 'mindpress') . '</p>';
+}
+
 
     public function render_template_metabox($post) {
         if ($post->post_type !== self::CPT) return;
