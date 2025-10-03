@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MindPress Test</title>
+    <link rel="stylesheet" href="../../mindpress/assets/admin.css">
+</head>
+<body>
+    <h1>MindPress Test Page</h1>
+
+    <div id="mp-app" data-json='{"text":"Root Idea","notes":"","children":[]}'></div>
+
+    <div class="mp-toolbar">
+        <input type="text" id="mp-search" class="mp-search" placeholder="Search..." />
+        <div class="mp-toolbar-buttons">
+            <button type="button" class="button" id="mp-expand-all">Expand all</button>
+            <button type="button" class="button" id="mp-collapse-all">Collapse all</button>
+            <button type="button" class="button" id="mp-export">Export</button>
+            <button type="button" class="button" id="mp-import">Import</button>
+            <span class="mp-status" id="mp-status" aria-live="polite"></span>
+        </div>
+    </div>
+
+    <p class="mp-actions">
+        <button type="button" class="button button-primary" id="mp-generate">Generate New Blog Post</button>
+        <button type="button" class="button" id="mp-insert">Insert into this post</button>
+    </p>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // Mock the MindPress global object
+        window.MindPress = {
+            nonce: 'mock-nonce',
+            ajax: 'mock-ajax-url',
+            postId: 123,
+            ptype: 'post',
+            levelTags: {'1':'h2','2':'h3','3':'h4','4':'h5','5':'p','6':'p'},
+            i18n: {
+                root: 'Root Idea',
+                addChild: 'Add child',
+                addSibling: 'Add sibling',
+                delete: 'Delete this node?',
+                generate: 'Generate New Blog Post',
+                insert: 'Insert into this post',
+                search: 'Search...',
+                exported: 'Exported JSON downloaded',
+                importErr: 'Invalid JSON file format.',
+                saving: 'Saving…',
+                saved: 'Saved ✓',
+            }
+        };
+    </script>
+    <script src="../../mindpress/assets/admin.js"></script>
+</body>
+</html>
