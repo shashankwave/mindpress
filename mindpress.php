@@ -190,13 +190,22 @@ class MindPressPlugin {
         if (!in_array($post->post_type, [ self::CPT, 'post' ], true) || !current_user_can('edit_post', $post_id)) return;
 
         // Save JSON tree from hidden field
-        if (isset($_POST['_mp_tree'])) {
-            $this->update_tree_from_json($post_id, wp_unslash($_POST['_mp_tree']));
+        $tree_raw = filter_input(INPUT_POST, '_mp_tree', FILTER_UNSAFE_RAW, ['flags' => FILTER_NULL_ON_FAILURE]);
+        if (null !== $tree_raw) {
+            $tree_json = sanitize_textarea_field((string) $tree_raw);
+            $this->update_tree_from_json($post_id, $tree_json);
         }
 
         // Save level tag mapping
-        if (isset($_POST['mp_tag_map']) && is_array($_POST['mp_tag_map'])) {
-            $this->update_level_tags_from_map($post_id, $_POST['mp_tag_map']);
+        $tag_map_raw = filter_input(INPUT_POST, 'mp_tag_map', FILTER_DEFAULT, ['flags' => FILTER_REQUIRE_ARRAY | FILTER_NULL_ON_FAILURE]);
+        if (is_array($tag_map_raw)) {
+            $sanitized_map  = [];
+            foreach ($tag_map_raw as $depth => $tag) {
+                if (is_string($tag)) {
+                    $sanitized_map[$depth] = sanitize_key($tag);
+                }
+            }
+            $this->update_level_tags_from_map($post_id, $sanitized_map);
         }
 
         // Template toggle (CPT only)
@@ -214,7 +223,9 @@ class MindPressPlugin {
         if (!$post_id || !current_user_can('edit_post', $post_id)) {
             wp_send_json_error(['message' => 'Permission denied'], 403);
         }
-        $this->update_tree_from_json($post_id, wp_unslash($_POST['tree'] ?? ''));
+        $tree_raw = filter_input(INPUT_POST, 'tree', FILTER_UNSAFE_RAW, ['flags' => FILTER_NULL_ON_FAILURE]);
+        $tree_json  = is_string($tree_raw) ? sanitize_textarea_field($tree_raw) : '';
+        $this->update_tree_from_json($post_id, $tree_json);
         wp_send_json_success(['ok' => true]);
     }
 
@@ -235,7 +246,8 @@ class MindPressPlugin {
         }
 
         $source_id = isset($_POST['source_id']) ? absint($_POST['source_id']) : 0;
-        $map_json  = isset($_POST['tree']) ? wp_unslash($_POST['tree']) : '';
+        $map_raw = filter_input(INPUT_POST, 'tree', FILTER_UNSAFE_RAW, ['flags' => FILTER_NULL_ON_FAILURE]);
+        $map_json  = is_string($map_raw) ? sanitize_textarea_field($map_raw) : '';
         $map       = json_decode($map_json, true);
         if (!is_array($map)) wp_send_json_error(['message' => 'Invalid map data'], 400);
 
@@ -260,7 +272,8 @@ class MindPressPlugin {
         check_ajax_referer(self::NONCE, 'nonce');
         $post_id  = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
         $src_id   = isset($_POST['source_id']) ? absint($_POST['source_id']) : 0;
-        $map_json = isset($_POST['tree']) ? wp_unslash($_POST['tree']) : '';
+        $map_raw = filter_input(INPUT_POST, 'tree', FILTER_UNSAFE_RAW, ['flags' => FILTER_NULL_ON_FAILURE]);
+        $map_json = is_string($map_raw) ? sanitize_textarea_field($map_raw) : '';
         $map      = json_decode($map_json, true);
 
         if (!$post_id || !current_user_can('edit_post', $post_id)) {
@@ -294,23 +307,23 @@ class MindPressPlugin {
 
     public function admin_gen_from_map() {
         if (!isset($_GET['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['nonce'])), self::NONCE)) {
-            wp_die(__('Invalid nonce.', 'mindpress'));
+            wp_die(esc_html__('Invalid nonce.', 'mindpress'));
         }
         $post_id = isset($_GET['post_id']) ? absint($_GET['post_id']) : 0;
         $map_post = get_post($post_id);
 
-        if (!$map_post || $map_post->post_type !== self::CPT) wp_die(__('Invalid Mind Map.', 'mindpress'));
-        if (!current_user_can('edit_post', $post_id) || !current_user_can('edit_posts')) wp_die(__('Permission denied.', 'mindpress'));
+        if (!$map_post || $map_post->post_type !== self::CPT) wp_die(esc_html__('Invalid Mind Map.', 'mindpress'));
+        if (!current_user_can('edit_post', $post_id) || !current_user_can('edit_posts')) wp_die(esc_html__('Permission denied.', 'mindpress'));
 
         $tree = get_post_meta($post_id, self::META_TREE, true);
         $arr  = $tree ? json_decode($tree, true) : null;
-        if (!is_array($arr)) wp_die(__('This Mind Map has no valid content.', 'mindpress'));
+        if (!is_array($arr)) wp_die(esc_html__('This Mind Map has no valid content.', 'mindpress'));
 
         $title   = $map_post->post_title ?: __('MindPress Draft', 'mindpress');
         $content = $this->tree_to_content_with_tags($arr, $this->get_level_tags($post_id));
         $new_id  = wp_insert_post(['post_title' => $title, 'post_content' => $content, 'post_status' => 'draft', 'post_type' => 'post'], true);
 
-        if (is_wp_error($new_id)) wp_die($new_id->get_error_message());
+        if (is_wp_error($new_id)) wp_die(esc_html($new_id->get_error_message()));
 
         update_post_meta($post_id, self::META_GEN_C, (int) get_post_meta($post_id, self::META_GEN_C, true) + 1);
         update_post_meta($post_id, self::META_GEN_L, time());
@@ -321,20 +334,20 @@ class MindPressPlugin {
 
     public function admin_duplicate_map() {
         if (!isset($_GET['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['nonce'])), self::NONCE)) {
-            wp_die(__('Invalid nonce.', 'mindpress'));
+            wp_die(esc_html__('Invalid nonce.', 'mindpress'));
         }
         $post_id = isset($_GET['post_id']) ? absint($_GET['post_id']) : 0;
         $map_post = get_post($post_id);
 
-        if (!$map_post || $map_post->post_type !== self::CPT) wp_die(__('Invalid Mind Map.', 'mindpress'));
-        if (!current_user_can('edit_post', $post_id)) wp_die(__('Permission denied.', 'mindpress'));
+        if (!$map_post || $map_post->post_type !== self::CPT) wp_die(esc_html__('Invalid Mind Map.', 'mindpress'));
+        if (!current_user_can('edit_post', $post_id)) wp_die(esc_html__('Permission denied.', 'mindpress'));
 
         $new_id = wp_insert_post([
             'post_title'  => ($map_post->post_title ? $map_post->post_title.' – '. __('Copy','mindpress') : __('Mind Map Copy','mindpress')),
             'post_status' => 'draft',
             'post_type'   => self::CPT,
         ], true);
-        if (is_wp_error($new_id)) wp_die($new_id->get_error_message());
+        if (is_wp_error($new_id)) wp_die(esc_html($new_id->get_error_message()));
 
         update_post_meta($new_id, self::META_TREE, get_post_meta($post_id, self::META_TREE, true));
         update_post_meta($new_id, self::META_TPL, get_post_meta($post_id, self::META_TPL, true));
